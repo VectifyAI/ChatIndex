@@ -1,0 +1,7 @@
+*.md
+!README.md
+__pycache__
+example*
+test*
+docs
+.env
