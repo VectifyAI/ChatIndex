@@ -61,7 +61,7 @@ ChatIndex is an extension of [PageIndex](https://pageindex.ai/blog/pageindex-int
    - Documents have natural structure (table of contents, sections)
    - Conversations are unstructured message lists → requires defining the structure within conversations.
    
-Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](http://www.gatsby.ucl.ac.uk/~ywteh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic.  Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
+Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](https://www.stats.ox.ac.uk/~teh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic.  Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
 
 
 ### Context Tree Specification
