@@ -27,28 +27,27 @@ Although modern LLMs have longer contexts, they still suffer from the long-conte
 1. **Preserve raw data**: An index system that can retrieve the original conversation when necessary
 2. **Multi-resolution access**: Ability to retrieve information at different levels of detail on-demand
 
-## How It Works
-
-ChatIndex operates in two phases:
-
-### Phase 1: Build the Tree
-Use an LLM to analyze conversation history and build a hierarchical topic tree.
-- **Input**: Raw conversation messages
-- **Output**: Indexed CTree with topics, summaries, and structure
-- **API**: OpenAI (for topic detection and summarization)
-
-### Phase 2: Query the Tree
-Use an LLM with tools to intelligently navigate the tree and retrieve relevant information.
-- **Input**: User question + CTree
-- **Output**: Answer based on retrieved conversation segments
-- **API**: Anthropic (for tool-based retrieval)
-
 ## ChatIndex Introduction
+ChatIndex is designed to meet these requirements by constructing a hierarchical tree index—which we call a Context Tree (CTree)—that captures the structure and semantic organization of a long conversation.
+Unlike memory-based architectures that store only compressed, lossy summaries, ChatIndex preserves the complete raw conversation and layers a topic hierarchy on top:
+  * Leaf nodes store raw conversational segments.
+  * Internal nodes store topic summaries that abstract and represent their child nodes.
 
-**ChatIndex addresses this by providing hierarchical, dynamic-resolution information retrieval:**
-- Preserves all raw conversation data
-- Enables hierarchical retrieval: if a parent node contains sufficient information, child topics aren't retrieved
-- Resolution is dynamic and problem-dependent
+This forms a multi-level topic hierarchy in which higher nodes represent broader themes and lower nodes convey increasingly specific details. See the figure below for an illustration.
+
+
+<p align="center">
+  <img width="600" alt="Root (1)" src="https://github.com/user-attachments/assets/5b0e5d2f-7486-43ad-9d86-251de1b6cbb0" />
+</p>
+
+When a query arrives, ChatIndex performs a top-down search through the topic tree. At each node, it evaluates whether the summary provides enough information for the query. If it does, the traversal stops and the system returns that higher-level summary; if not, it continues downward until more detailed information—or the raw conversation—is accessed. This design offers:
+
+* Dynamic retrieval resolution – the system returns only as much detail as needed.
+* Lossless fallback – the raw conversation is always accessible when required.
+* Efficient reasoning – large contexts are reduced to the minimally sufficient subset.
+
+By combining the completeness of an index system with the flexibility of a hierarchical memory structure, ChatIndex provides a scalable and robust solution for managing long conversational contexts.
+
 
 ### Inspiration & Comparisons
 
@@ -62,7 +61,8 @@ ChatIndex is an extension of [PageIndex](https://pageindex.ai/blog/pageindex-int
    - Documents have natural structure (table of contents, sections)
    - Conversations are unstructured message lists → requires defining the structure within conversations.
    
-Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](http://www.gatsby.ucl.ac.uk/~ywteh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic. We call this a **Context Tree (CTree)**. Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
+Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](http://www.gatsby.ucl.ac.uk/~ywteh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic.  Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
+
 
 ### Context Tree Specification
 
