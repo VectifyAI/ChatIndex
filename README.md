@@ -7,7 +7,6 @@ ChatIndex is a context management system that enables LLMs to efficiently naviga
 - [Motivation](#motivation)
 - [ChatIndex Introduction](#chatindex-introduction)
   - [Inspiration & Comparisons](#inspiration--comparisons)
-  - [Connection to B+-Tree](#connection-to-b-tree)
   - [Context Tree Specification](#context-tree-specification)
 - [Quick Start](#quick-start)
   - [Installation](#installation)
@@ -22,13 +21,13 @@ ChatIndex is a context management system that enables LLMs to efficiently naviga
 
 Current AI chat assistants face a fundamental challenge: **context management in long conversations**. While current LLM apps use multiple separate conversations to bypass context limits, a truly human-like AI assistant should maintain a single, coherent conversation thread, making efficient context management critical.
 
-Although modern LLMs have longer contexts, they still suffer from the long-context problem (e.g. [context rot problem](https://research.trychroma.com/context-rot)) - reasoning ability decreases as context grows longer. Memory-based systems (e.g. [Dynamic Cheatsheet](https://arxiv.org/abs/2504.07952), [mem0](https://arxiv.org/pdf/2504.19413)) have been invented to alleviate the context rot problem, however, memory-based representations are inherently lossy and inevitably lose information from the original conversation. In principle, **no lossy representation is universally perfect** for all downstream tasks. This leads to two key requirements for defining a flexible in-context management system:
+Although modern LLMs have longer contexts, they still suffer from the long-context problem (e.g. [context rot problem](https://research.trychroma.com/context-rot)) - reasoning ability decreases as context grows longer. Memory-based systems (e.g. [Dynamic Cheatsheet](https://arxiv.org/abs/2504.07952), [mem0](https://arxiv.org/pdf/2504.19413)) have been invented to alleviate the context rot problem; however, memory-based representations are inherently lossy and inevitably lose information from the original conversation. In principle, **no lossy representation is universally perfect** for all downstream tasks. This leads to two key requirements for defining a flexible in-context management system:
 
 1. **Preserve raw data**: An index system that can retrieve the original conversation when necessary
-2. **Multi-resolution access**: Ability to retrieve information at different levels of detail on-demand
+2. **Multi-resolution access**: Ability to retrieve information at different levels of detail on demand
 
 ## ChatIndex Introduction
-ChatIndex is designed to meet these requirements by constructing a hierarchical tree index—which we call a Context Tree (CTree)—that captures the structure and semantic organization of a long conversation.
+ChatIndex is designed to meet these requirements by constructing a hierarchical tree index — which we call a Context Tree (CTree) — that captures the structure and semantic organization of a long conversation.
 Unlike memory-based architectures that store only compressed, lossy summaries, ChatIndex preserves the complete raw conversation and layers a topic hierarchy on top:
   * Leaf nodes store raw conversational segments.
   * Internal nodes store topic summaries that abstract and represent their child nodes.
@@ -58,18 +57,18 @@ ChatIndex is an extension of [PageIndex](https://pageindex.ai/blog/pageindex-int
    - Conversations are dynamic → requires **incremental tree generation**
 
 2. **Structured vs. Unstructured**:
-   - Documents have natural structure (table of contents, sections)
+   - Documents have natural structures (table of contents, sections)
    - Conversations are unstructured message lists → requires defining the structure within conversations.
    
 Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](https://www.stats.ox.ac.uk/~teh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic.  Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
 
-### Connection to B+-Tree
+#### Connection to B+-Tree
 
-ChatIndex's Context Tree is structurally similar to a **B+-tree** in databases, but instead of indexing keys on disk, it indexes **conversational context**:
+ChatIndex's Context Tree is structurally similar to a [**B+ tree**](https://en.wikipedia.org/wiki/B%2B_tree) in databases, but instead of indexing keys on disk, it indexes **conversational context**:
 
 - **Leaf nodes**: (raw records)
   - store full conversation messages
-- **Internal nodes**: (routing keys  )
+- **Internal nodes**: (routing keys)
   - store summaries that guide which branch to follow.
 - **Bounded fan-out** (`max_children`)
   - keeps the tree shallow and traversal efficient
