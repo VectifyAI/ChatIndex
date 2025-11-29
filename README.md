@@ -5,9 +5,9 @@ ChatIndex is a context management system that enables LLMs to efficiently naviga
 ## Table of Contents
 
 - [Motivation](#motivation)
-- [How It Works](#how-it-works)
 - [ChatIndex Introduction](#chatindex-introduction)
   - [Inspiration & Comparisons](#inspiration--comparisons)
+  - [Connection to B+-Tree](#connection-to-b-tree)
   - [Context Tree Specification](#context-tree-specification)
 - [Quick Start](#quick-start)
   - [Installation](#installation)
@@ -62,6 +62,23 @@ ChatIndex is an extension of [PageIndex](https://pageindex.ai/blog/pageindex-int
    - Conversations are unstructured message lists → requires defining the structure within conversations.
    
 Inspired by topic models (e.g. [LDA](https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf), [HDP](https://www.stats.ox.ac.uk/~teh/research/npbayes/jasa2006.pdf)), ChatIndex uses LLMs to detect topic switches in long conversations and generate a tree with nodes that represent a topic.  Unlike hierarchical traditional topic models, the CTree is **temporally ordered** - new topics can only branch from the current topic or its ancestors.
+
+### Connection to B+-Tree
+
+ChatIndex's Context Tree is structurally similar to a **B+-tree** in databases, but instead of indexing keys on disk, it indexes **conversational context**:
+
+- **Leaf nodes**: (raw records)
+  - store full conversation messages
+- **Internal nodes**: (routing keys  )
+  - store summaries that guide which branch to follow.
+- **Bounded fan-out** (`max_children`)
+  - keeps the tree shallow and traversal efficient
+
+**Key difference:**
+
+B+-trees use numeric/lexicographic key comparisons, while ChatIndex uses **contextual relevance** judged by an LLM to decide which branch to follow.
+
+In short, ChatIndex borrows the **efficient hierarchical structure** of a B+-tree, but replaces key-based lookup with **reasoning-based navigation** over topics.
 
 
 ### Context Tree Specification
