@@ -409,6 +409,9 @@ class CTree:
         else:
             # Create new topic
             parent_index = classification.get("new_topic_parent_index", len(candidate_nodes) - 1)
+            # Handle None values (from JSON null)
+            if parent_index is None:
+                parent_index = len(candidate_nodes) - 1
             parent_node = candidate_nodes[parent_index]
             topic_name = classification.get("new_topic_name", "")
             
@@ -445,6 +448,9 @@ class CTree:
         else:
             # Create new topic
             parent_index = classification.get("new_topic_parent_index", len(candidate_nodes) - 1)
+            # Handle None values (from JSON null)
+            if parent_index is None:
+                parent_index = len(candidate_nodes) - 1
             parent_node = candidate_nodes[parent_index]
             topic_name = classification.get("new_topic_name", "")
             
@@ -846,8 +852,12 @@ Directly output ONLY the JSON, do not include any other text."""
             
             # Validate and bound parent_index
             if "new_topic_parent_index" in result:
-                if result["new_topic_parent_index"] != "N/A":
-                    result["new_topic_parent_index"] = min(max(0, int(result["new_topic_parent_index"])), len(candidate_nodes) - 1)
+                parent_idx = result["new_topic_parent_index"]
+                if parent_idx is not None and parent_idx != "N/A":
+                    result["new_topic_parent_index"] = min(max(0, int(parent_idx)), len(candidate_nodes) - 1)
+                else:
+                    # Set default if None or "N/A"
+                    result["new_topic_parent_index"] = len(candidate_nodes) - 1
                 
             # Ensure belongs_to_current is boolean
             if "belongs_to_current" not in result:
