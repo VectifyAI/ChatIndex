@@ -9,7 +9,12 @@ print(f"Loaded {len(conversation)} messages")
 
 # Build tree from conversation
 print("\nBuilding tree from conversation...")
-tree = CTree(max_children=10, auto_save_path='save/conversation_tree.json')
+tree = CTree(
+    max_children=10, 
+    provider="claude",
+    model="claude-sonnet-4-5",
+    auto_save_path='save/conversation_tree.json'
+    )
 
 
 messages = []  

@@ -3,8 +3,10 @@ import logging
 import time
 import os
 import json 
+from anthropic import Anthropic
 
 CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 
 def ChatGPT_API(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None, temperature=0, max_tokens=None):
@@ -36,6 +38,60 @@ def ChatGPT_API(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None, tempe
             logging.error(f"Error: {e}")
             if i < max_retries - 1:
                 time.sleep(1)  # Wait for 1秒 before retrying
+            else:
+                logging.error('Max retries reached for prompt: ' + prompt)
+                return "Error"
+
+
+def Claude_API(model, prompt, api_key=ANTHROPIC_API_KEY, chat_history=None, temperature=0, max_tokens=None):
+    """
+    Call Claude API (Anthropic) for text generation.
+    
+    Args:
+        model: Claude model name (e.g., "claude-3-5-sonnet-20241022", "claude-sonnet-4-5")
+        prompt: The prompt text
+        api_key: Anthropic API key (or set ANTHROPIC_API_KEY environment variable)
+        chat_history: Optional list of message dicts with "role" and "content"
+        temperature: Temperature parameter (0-1)
+        max_tokens: Maximum tokens to generate
+    
+    Returns:
+        Generated text response
+    """
+    max_retries = 10
+    client = Anthropic(api_key=api_key)
+    
+    for i in range(max_retries):
+        try:
+            if chat_history:
+                messages = chat_history
+                messages.append({"role": "user", "content": prompt})
+            else:
+                messages = [{"role": "user", "content": prompt}]
+            
+            # Build kwargs for API call
+            api_kwargs = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if max_tokens is not None:
+                api_kwargs["max_tokens"] = max_tokens
+            
+            response = client.messages.create(**api_kwargs)
+            
+            # Extract text from response
+            text_content = ""
+            for block in response.content:
+                if block.type == "text":
+                    text_content += block.text
+            
+            return text_content
+        except Exception as e:
+            print('************* Retrying *************')
+            logging.error(f"Error: {e}")
+            if i < max_retries - 1:
+                time.sleep(1)  # Wait for 1 second before retrying
             else:
                 logging.error('Max retries reached for prompt: ' + prompt)
                 return "Error"

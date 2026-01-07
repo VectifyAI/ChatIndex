@@ -9,7 +9,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
 import os
 from dotenv import load_dotenv
-from .utils import ChatGPT_API, extract_json
+from .utils import ChatGPT_API, Claude_API, extract_json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -145,7 +145,7 @@ class CTree:
     of the current node or its ancestors.
     """
     
-    def __init__(self, max_children: int = 5, api_key: Optional[str] = None, model: str = "gpt-4o-mini", auto_save_path: Optional[str] = None):
+    def __init__(self, max_children: int = 5, api_key: Optional[str] = None, model: str = "gpt-4o-mini", provider: str = "openai", auto_save_path: Optional[str] = None):
         """
         Initialize the CTree.
         
@@ -154,23 +154,33 @@ class CTree:
                          - If a node has > max_children message children → expand into subtopics (vertical split)
                          - If a node has > max_children topic children → split into two siblings (horizontal split)
                          - If ROOT has > max_children topic children → expand into subtopics (parent remains root)
-            api_key: OpenAI API key (or set OPENAI_API_KEY environment variable)
+            api_key: API key for the chosen provider (or set OPENAI_API_KEY/ANTHROPIC_API_KEY environment variable)
             model: LLM model to use for topic generation and classification
+            provider: LLM provider to use - "openai" or "claude" (default: "openai")
             auto_save_path: Optional path to automatically save the tree after each message addition.
                            If provided, the tree will be saved incrementally to prevent data loss.
         """
         self.max_children = max_children
         self.model = model
+        self.provider = provider.lower()
         self.conversation: List[Dict] = []
         self.auto_save_path = auto_save_path
         
-        # Store API key for ChatGPT_API calls
+        # Validate provider
+        if self.provider not in ["openai", "claude"]:
+            raise ValueError(f"Provider must be 'openai' or 'claude', got '{provider}'")
+        
+        # Store API key based on provider
         if api_key:
             self.api_key = api_key
-        elif os.getenv("OPENAI_API_KEY"):
+        elif self.provider == "openai":
             self.api_key = os.getenv("OPENAI_API_KEY")
-        else:
-            raise ValueError("OpenAI API key must be provided or set in OPENAI_API_KEY  environment variable")
+            if not self.api_key:
+                raise ValueError("OpenAI API key must be provided or set in OPENAI_API_KEY environment variable")
+        elif self.provider == "claude":
+            self.api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not self.api_key:
+                raise ValueError("Anthropic API key must be provided or set in ANTHROPIC_API_KEY environment variable")
         
         # Create virtual root node
         self.root = TopicNode(
@@ -180,6 +190,26 @@ class CTree:
             end_index=0
         )
         self.current_node = self.root
+    
+    def _llm_call(self, prompt: str, temperature: float = 0.3, max_tokens: Optional[int] = None, chat_history: Optional[List[Dict]] = None) -> str:
+        """
+        Unified LLM call method that routes to the appropriate API based on provider.
+        
+        Args:
+            prompt: The prompt text
+            temperature: Temperature parameter (default: 0.3)
+            max_tokens: Maximum tokens to generate (optional)
+            chat_history: Optional list of message dicts with "role" and "content"
+        
+        Returns:
+            Generated text response
+        """
+        if self.provider == "openai":
+            return ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=temperature, max_tokens=max_tokens, chat_history=chat_history)
+        elif self.provider == "claude":
+            return Claude_API(self.model, prompt, api_key=self.api_key, temperature=temperature, max_tokens=max_tokens, chat_history=chat_history)
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
     
     def get_ancestors(self, node: TopicNode, include_self: bool = True, exclude_root: bool = False) -> List[TopicNode]:
         """
@@ -575,7 +605,7 @@ Message: {content}
 Respond with ONLY the topic name, nothing else."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=50)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=50)
             return response.strip()
         except Exception as e:
             print(f"LLM error in topic generation: {e}")
@@ -615,7 +645,7 @@ Assistant: {assistant_content}
 Respond with ONLY the topic name, nothing else."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=50)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=50)
             return response.strip()
         except Exception as e:
             print(f"LLM error in topic generation from message: {e}")
@@ -645,7 +675,7 @@ Respond with ONLY the topic name, nothing else."""
 Summary:"""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=100)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=100)
             return response.strip()
         except Exception as e:
             print(f"LLM error in summarization: {e}")
@@ -716,7 +746,7 @@ Respond ONLY with valid JSON in this exact format:
 Directly output ONLY the JSON, do not include any other text."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key)
+            response = self._llm_call(prompt)
             result = extract_json(response)
             
             # Validate and bound parent_index
@@ -811,7 +841,7 @@ Respond ONLY with valid JSON in this exact format:
 Directly output ONLY the JSON, do not include any other text."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.1, max_tokens=200)
+            response = self._llm_call(prompt, temperature=0.1, max_tokens=200)
             result = extract_json(response)
             
             # Validate and bound parent_index
@@ -883,7 +913,7 @@ Ensure:
 Directly output ONLY the JSON, do not include any other text."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=500)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=500)
             result = extract_json(response)
             
             # Handle both array and object with array responses
@@ -1185,7 +1215,7 @@ The split_index should be the starting index of the second group. For example:
 Respond ONLY with valid JSON, no other text."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.2, max_tokens=200)
+            response = self._llm_call(prompt, temperature=0.2, max_tokens=200)
             result = extract_json(response)
             split_index = int(result.get("split_index", len(topic_children) // 2))
             
@@ -1230,7 +1260,7 @@ The new topic name should:
 Respond with ONLY the topic name, nothing else."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=50)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=50)
             topic_name = response.strip()
             
             # Remove quotes if present
@@ -1293,7 +1323,7 @@ Ensure:
 Respond ONLY with valid JSON, no other text."""
         
         try:
-            response = ChatGPT_API(self.model, prompt, api_key=self.api_key, temperature=0.3, max_tokens=800)
+            response = self._llm_call(prompt, temperature=0.3, max_tokens=800)
             result = extract_json(response)
             
             # Handle different response formats
@@ -1397,7 +1427,7 @@ Respond ONLY with valid JSON, no other text."""
             json.dump(data, f, indent=2, ensure_ascii=False)
     
     @classmethod
-    def load(cls, filepath: str, api_key: Optional[str] = None, model: Optional[str] = None) -> 'CTree':
+    def load(cls, filepath: str, api_key: Optional[str] = None, model: Optional[str] = None, provider: str = "openai") -> 'CTree':
         """
         Load a CTree from a JSON file (class method).
         
@@ -1409,8 +1439,9 @@ Respond ONLY with valid JSON, no other text."""
         
         Args:
             filepath: Path to the saved tree JSON file
-            api_key: OpenAI API key (optional if set in environment)
-            model: LLM model to use (if None, defaults to 'gpt-4o-mini')
+            api_key: API key for the chosen provider (optional if set in environment)
+            model: LLM model to use (if None, defaults to 'gpt-4o-mini' for OpenAI or 'claude-haiku-4-5-20251001' for Claude)
+            provider: LLM provider to use - "openai" or "claude" (default: "openai")
         
         Returns:
             Loaded CTree instance
@@ -1425,13 +1456,17 @@ Respond ONLY with valid JSON, no other text."""
         
         # Use default model if not provided
         if model is None:
-            model = 'gpt-4o-mini'
+            if provider == "claude":
+                model = 'claude-haiku-4-5-20251001'
+            else:
+                model = 'gpt-4o-mini'
         
         # Create new tree instance with saved parameters
         tree = cls(
             max_children=data.get('max_children', 5),
             api_key=api_key,
-            model=model
+            model=model,
+            provider=provider
         )
         
         # Restore conversation history

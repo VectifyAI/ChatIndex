@@ -123,8 +123,9 @@ pip install -r requirements.txt
 
 3. Set up API keys:
 ```bash
-# For building trees (Phase 1)
-export OPENAI_API_KEY="your-openai-key"
+# For building trees (Phase 1) - Choose one or both:
+export OPENAI_API_KEY="your-openai-key"      # For OpenAI models
+export ANTHROPIC_API_KEY="your-anthropic-key"  # For Claude models
 
 # For querying trees (Phase 2)
 export ANTHROPIC_API_KEY="your-anthropic-key"
@@ -181,15 +182,45 @@ print(f"Retrieved answer using {result['turns_used']} turns")
 
 ### Phase 1: Building the Tree
 
-Build a hierarchical index of your conversation:
+Build a hierarchical index of your conversation. ChatIndex supports both OpenAI and Claude for tree building:
 
+**Using OpenAI (default):**
 ```python
 from ctree import CTree
 
-# Initialize tree
-tree = CTree(max_children=10)
+# Initialize tree with OpenAI
+tree = CTree(
+    max_children=10,
+    provider="openai",  # or omit for default
+    model="gpt-4o-mini"  # or "gpt-4o", "gpt-4-turbo", etc.
+)
 
 # Add conversation exchanges
+messages = [
+    {"role": "system", "content": "You are a helpful programming tutor."},
+    {"role": "user", "content": "What is Python?"},
+    {"role": "assistant", "content": "Python is a high-level programming language..."}
+]
+tree.add(messages)
+
+# Save and visualize
+tree.save('conversation_tree.json')
+tree.print_tree()
+```
+
+**Using Claude:**
+```python
+from ctree import CTree
+
+# Initialize tree with Claude
+tree = CTree(
+    max_children=10,
+    provider="claude",
+    model="claude-haiku-4-5-20251001"  # Default: fast & cheap (equivalent to gpt-4o-mini)
+    # Or use: "claude-3-5-sonnet-20241022" for more capability (equivalent to gpt-4o)
+)
+
+# Add conversation exchanges (same as above)
 messages = [
     {"role": "system", "content": "You are a helpful programming tutor."},
     {"role": "user", "content": "What is Python?"},
@@ -221,8 +252,8 @@ from ctree import CTree
 from retrieval.llm_tools import query_ctree
 import os
 
-# Load indexed conversation
-tree = CTree.load('conversation_tree.json')
+# Load indexed conversation (specify provider if different from default)
+tree = CTree.load('conversation_tree.json', provider="claude")  # or "openai"
 
 # Ask questions
 result = query_ctree(
@@ -309,8 +340,9 @@ messages = tools.get_node_messages(0, 10)  # Get messages 0-10
 - [x] **Hierarchical tree indexing** - Build topic-based conversation trees
 - [x] **LLM-guided retrieval** - Intelligent navigation with tools
 - [x] **Streaming support** - Real-time responses
+- [x] **Multi-LLM support for tree building** - Support for OpenAI and Claude
 - [ ] **Offline tree optimization** - Post-processing for better structure
-- [ ] **Multi-LLM support** - Support for different LLMs in retrieval
+- [ ] **Multi-LLM support for retrieval** - Support for different LLMs in retrieval
 - [ ] **Incremental updates** - Efficiently update trees with new messages
 - [ ] **Vector search integration** - Hybrid retrieval combining tree + embeddings
 
