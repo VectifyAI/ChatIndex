@@ -17,6 +17,7 @@ from datetime import datetime
 import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
 import dotenv
 dotenv.load_dotenv()
@@ -26,9 +27,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ctree import CTree
 from retrieval.llm_tools import query_ctree
 
-# Add memU-experiment to path for evaluation
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'memU-experiment'))
-from evaluate_agent import EvaluateAgent
+# Commented out for now to use local answer evaluator
+# # Add memU-experiment to path for evaluation
+# sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'memU-experiment'))
+# from evaluate_agent import EvaluateAgent
+# Import ChatIndex answer evaluator
+
+from answer_evaluator import AnswerEvaluator
 
 
 class ChatIndexLoCoMoTester:
@@ -45,11 +50,13 @@ class ChatIndexLoCoMoTester:
         self,
         openai_api_key: Optional[str] = None,
         anthropic_api_key: Optional[str] = None,
-        chatindex_model: str = "gpt-4o-mini",
+        chatindex_model: str = "claude-haiku-4-5-20251001",
+        chatindex_provider: str = "claude",
         max_children: int = 10,
         max_workers: int = 3,
         category_filter: Optional[List[str]] = None,
-        tree_save_dir: Optional[str] = None
+        tree_save_dir: Optional[str] = None,
+        test_mode: bool = False
     ):
         """
         Initialize ChatIndex LoCoMo Tester
@@ -57,37 +64,53 @@ class ChatIndexLoCoMoTester:
         Args:
             openai_api_key: OpenAI API key for building trees (or set OPENAI_API_KEY env var)
             anthropic_api_key: Anthropic API key for querying trees (or set ANTHROPIC_API_KEY env var)
-            chatindex_model: OpenAI model to use for tree building
+            chatindex_model: Model to use for tree building (default: "claude-haiku-4-5-20251001")
+            chatindex_provider: Provider to use for tree building - "openai" or "claude" (default: "claude")
             max_children: Maximum children per node in ChatIndex tree
             max_workers: Number of parallel workers for QA processing
             category_filter: Optional list of question categories to test
             tree_save_dir: Optional directory to save built trees
+            test_mode: If True, print tree structure for logging (default: False)
         """
         # Get API keys from args or environment
         self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
         self.anthropic_api_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
         
-        if not self.openai_api_key:
-            raise ValueError("OpenAI API key required (set OPENAI_API_KEY env var)")
-        if not self.anthropic_api_key:
-            raise ValueError("Anthropic API key required (set ANTHROPIC_API_KEY env var)")
-        
         self.chatindex_model = chatindex_model
+        self.chatindex_provider = chatindex_provider.lower()
+        
+        # Validate API keys based on provider
+        # query_ctree always uses Anthropic, so we always need anthropic_api_key
+        if not self.anthropic_api_key:
+            raise ValueError("Anthropic API key required for querying (set ANTHROPIC_API_KEY env var)")
+        
+        # For tree building, check provider-specific key
+        if self.chatindex_provider == "openai":
+            if not self.openai_api_key:
+                raise ValueError("OpenAI API key required for OpenAI tree building (set OPENAI_API_KEY env var)")
         self.max_children = max_children
         self.max_workers = max_workers
         self.category_filter = category_filter
         self.tree_save_dir = Path(tree_save_dir) if tree_save_dir else None
+        self.test_mode = test_mode
         
         if self.tree_save_dir:
             self.tree_save_dir.mkdir(exist_ok=True)
         
-        # Initialize evaluation agent (reuse from memU-experiment)
-        self.evaluate_agent = EvaluateAgent(
-            azure_endpoint=None,
-            api_key=self.openai_api_key,  # EvaluateAgent can use OpenAI
-            chat_deployment="gpt-4o",  # Use stronger model for evaluation
-            use_entra_id=False,
-            api_version="2024-02-15-preview"
+        # Commented out for now to use local answer evaluator
+        # # Initialize evaluation agent (reuse from memU-experiment)
+        # self.evaluate_agent = EvaluateAgent(
+        #     azure_endpoint=None,
+        #     api_key=self.openai_api_key,  # EvaluateAgent can use OpenAI
+        #     chat_deployment="gpt-4o",  # Use stronger model for evaluation
+        #     use_entra_id=False,
+        #     api_version="2024-02-15-preview"
+        # )
+
+        # Initialize answer evaluator (uses Claude)
+        self.evaluate_agent = AnswerEvaluator(
+            api_key=self.anthropic_api_key,
+            model="claude-haiku-4-5-20251001"  # Use Claude for evaluation
         )
         
         self.results = []
@@ -99,6 +122,7 @@ class ChatIndexLoCoMoTester:
         self._init_error_log()
         
         print(f"ChatIndex LoCoMo Tester initialized")
+        print(f"  - Tree provider: {self.chatindex_provider}")
         print(f"  - Tree model: {chatindex_model}")
         print(f"  - Max children: {max_children}")
         print(f"  - Max workers: {max_workers}")
@@ -221,54 +245,72 @@ class ChatIndexLoCoMoTester:
                 return None
             
             # Initialize tree
+            # Use appropriate API key based on provider
+            api_key = self.anthropic_api_key if self.chatindex_provider == "claude" else self.openai_api_key
             tree = CTree(
                 max_children=self.max_children,
-                api_key=self.openai_api_key,
-                model=self.chatindex_model
+                api_key=api_key,
+                model=self.chatindex_model,
+                provider=self.chatindex_provider
             )
             
             # Build tree incrementally
             # ChatIndex expects messages in groups: [system?, user, assistant]
             # LoCoMo messages alternate: user, assistant, user, assistant, ...
             i = 0
-            while i < len(messages):
-                group = []
-                
-                # Check for system message at start (uncommon in LoCoMo, but handle it)
-                if i < len(messages) and messages[i]['role'] == 'system':
-                    group.append(messages[i])
-                    i += 1
-                
-                # Look for user-assistant pair
-                if i < len(messages) and messages[i]['role'] == 'user':
-                    group.append(messages[i])
-                    i += 1
+            
+            # Use tqdm for progress bar - track message index progress
+            with tqdm(total=len(messages), desc=f"  Building tree (sample {sample_id})", 
+                     unit="msg", leave=False, ncols=80) as pbar:
+                while i < len(messages):
+                    # Update progress bar to current position
+                    pbar.n = i
+                    pbar.refresh()
                     
-                    # Add corresponding assistant message if available
-                    if i < len(messages) and messages[i]['role'] == 'assistant':
+                    group = []
+                
+                    # Check for system message at start (uncommon in LoCoMo, but handle it)
+                    if i < len(messages) and messages[i]['role'] == 'system':
+                        group.append(messages[i])
+                        i += 1
+                    
+                    # Look for user-assistant pair
+                    if i < len(messages) and messages[i]['role'] == 'user':
                         group.append(messages[i])
                         i += 1
                         
-                        # We have a complete exchange (user + assistant), add to tree
-                        try:
-                            tree.add(group)
-                        except Exception as e:
-                            print(f"    Warning: Failed to add message group: {e}")
-                            # Continue with next group
+                        # Add corresponding assistant message if available
+                        if i < len(messages) and messages[i]['role'] == 'assistant':
+                            group.append(messages[i])
+                            i += 1
+                            
+                            # We have a complete exchange (user + assistant), add to tree
+                            try:
+                                tree.add(group)
+                            except Exception as e:
+                                print(f"    Warning: Failed to add message group: {e}")
+                                # Continue with next group
+                        else:
+                            # Missing assistant message, skip this user message
+                            # (ChatIndex requires both user and assistant)
+                            if group:
+                                group.pop()  # Remove the user message we added
+                            i += 1
                     else:
-                        # Missing assistant message, skip this user message
-                        # (ChatIndex requires both user and assistant)
-                        if group:
-                            group.pop()  # Remove the user message we added
+                        # Unexpected message format, skip
                         i += 1
-                else:
-                    # Unexpected message format, skip
-                    i += 1
             
             # Save tree if directory specified
             if self.tree_save_dir:
                 save_path = self.tree_save_dir / f"sample_{sample_id}_tree.json"
                 tree.save(str(save_path))
+            
+            # Print tree structure if in test mode
+            if self.test_mode:
+                print(f"\n  Tree structure for sample {sample_id}:")
+                print("  " + "="*60)
+                tree.print_tree()
+                print("  " + "="*60 + "\n")
             
             return tree
             
@@ -399,39 +441,42 @@ class ChatIndexLoCoMoTester:
             return []
         
         question_results = []
-        completed_count = 0
         
-        # Process in parallel
+        # Process in parallel with progress bar
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_qa = {
                 executor.submit(self._process_single_qa, qa_item, tree): qa_item
                 for qa_item in qa_items
             }
             
-            for future in as_completed(future_to_qa):
-                completed_count += 1
-                try:
-                    result = future.result()
-                    question_results.append(result)
-                except Exception as e:
-                    qa_item = future_to_qa[future]
-                    print(f"  Exception processing QA {qa_item[3]+1}: {e}")
-                    question_results.append({
-                        'qa_index': qa_item[3],
-                        'question': qa_item[0],
-                        'generated_answer': f"Error: {e}",
-                        'standard_answer': qa_item[1],
-                        'category': qa_item[2],
-                        'is_correct': False,
-                        'explanation': f"Exception: {e}",
-                        'turns_used': 0
-                    })
+            # Use tqdm to show progress
+            with tqdm(total=len(qa_items), desc="  Processing QA questions", 
+                     unit="qa", leave=False, ncols=80) as pbar:
+                for future in as_completed(future_to_qa):
+                    try:
+                        result = future.result()
+                        question_results.append(result)
+                    except Exception as e:
+                        qa_item = future_to_qa[future]
+                        print(f"  Exception processing QA {qa_item[3]+1}: {e}")
+                        question_results.append({
+                            'qa_index': qa_item[3],
+                            'question': qa_item[0],
+                            'generated_answer': f"Error: {e}",
+                            'standard_answer': qa_item[1],
+                            'category': qa_item[2],
+                            'is_correct': False,
+                            'explanation': f"Exception: {e}",
+                            'turns_used': 0
+                        })
+                    finally:
+                        pbar.update(1)
         
         # Sort by qa_index
         question_results.sort(key=lambda x: x['qa_index'])
         
         successful_qa = sum(1 for r in question_results if r['is_correct'])
-        print(f"  Completed {completed_count} questions: {successful_qa}/{len(question_results)} correct")
+        print(f"  Completed {len(question_results)} questions: {successful_qa}/{len(question_results)} correct")
         
         return question_results
     
@@ -507,7 +552,8 @@ class ChatIndexLoCoMoTester:
             with open(data_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Filter samples if specified
+            # Filter samples if specified and determine test mode
+            is_test_mode = False
             if sample_use:
                 try:
                     parsed_value = ast.literal_eval(sample_use)
@@ -515,16 +561,25 @@ class ChatIndexLoCoMoTester:
                     if isinstance(parsed_value, int):
                         data = data[:parsed_value]
                         print(f"Using first {parsed_value} samples")
+                        # Consider test mode if only 1 sample
+                        is_test_mode = parsed_value == 1
                     elif isinstance(parsed_value, list):
                         valid_indices = [i for i in parsed_value if isinstance(i, int) and 0 <= i < len(data)]
                         data = [data[i] for i in valid_indices]
                         print(f"Using samples at indices: {valid_indices}")
+                        # Consider test mode if only 1 sample
+                        is_test_mode = len(valid_indices) == 1
                     else:
                         raise ValueError("sample_use must be integer or list")
                 except Exception as e:
                     print(f"Error parsing sample_use: {e}, using all samples")
             else:
                 print(f"Using all {len(data)} samples")
+            
+            # Update test_mode based on sample count (if not explicitly set)
+            if is_test_mode and not self.test_mode:
+                self.test_mode = True
+                print("Test mode enabled: Tree structures will be printed for logging")
             
             # Process each sample
             all_results = []
@@ -645,8 +700,11 @@ def main():
                        help='Path to LoCoMo test data file')
     parser.add_argument('--sample-use', type=str,
                        help='Sample indices: number (e.g., "5") or list (e.g., "[0,1,3]")')
-    parser.add_argument('--chatindex-model', default='gpt-4o-mini',
-                       help='OpenAI model for tree building')
+    parser.add_argument('--chatindex-model', default='claude-haiku-4-5-20251001',
+                       help='Model for tree building (default: claude-haiku-4-5-20251001)')
+    parser.add_argument('--chatindex-provider', default='claude',
+                       choices=['openai', 'claude'],
+                       help='Provider for tree building (default: claude)')
     parser.add_argument('--max-children', type=int, default=10,
                        help='Max children per node in ChatIndex tree')
     parser.add_argument('--max-workers', type=int, default=3,
@@ -655,6 +713,8 @@ def main():
                        help='Filter by category (e.g., "1" or "0,2,3")')
     parser.add_argument('--tree-save-dir', type=str,
                        help='Directory to save built trees')
+    parser.add_argument('--test-mode', action='store_true',
+                       help='Enable test mode: print tree structures for logging')
     
     args = parser.parse_args()
     
@@ -669,10 +729,12 @@ def main():
     # Initialize tester
     tester = ChatIndexLoCoMoTester(
         chatindex_model=args.chatindex_model,
+        chatindex_provider=args.chatindex_provider,
         max_children=args.max_children,
         max_workers=args.max_workers,
         category_filter=category_filter,
-        tree_save_dir=args.tree_save_dir
+        tree_save_dir=args.tree_save_dir,
+        test_mode=args.test_mode
     )
     
     # Run test

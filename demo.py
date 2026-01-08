@@ -12,7 +12,7 @@ print("\nBuilding tree from conversation...")
 tree = CTree(
     max_children=10, 
     provider="claude",
-    model="claude-sonnet-4-5",
+    model="claude-haiku-4-5-20251001",
     auto_save_path='save/conversation_tree.json'
     )
 
