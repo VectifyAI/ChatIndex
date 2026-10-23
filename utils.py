@@ -35,7 +35,7 @@ def ChatGPT_API(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None, tempe
             print('************* Retrying *************')
             logging.error(f"Error: {e}")
             if i < max_retries - 1:
-                time.sleep(1)  # Wait for 1秒 before retrying
+                time.sleep(1)  # Wait for 1 second before retrying
             else:
                 logging.error('Max retries reached for prompt: ' + prompt)
                 return "Error"
